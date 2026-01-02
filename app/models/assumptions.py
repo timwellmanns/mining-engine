@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from typing import List
 from app.core.config import ASSUMPTIONS_VERSION
 
 
@@ -17,7 +18,7 @@ class Assumptions(BaseModel):
         default=144,
         description="Expected number of blocks mined per day",
     )
-    simplifications: list[str] = Field(
+    simplifications: List[str] = Field(
         default=[
             "Transaction fees not included in revenue",
             "Constant block subsidy (halving events not modeled)",

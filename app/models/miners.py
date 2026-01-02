@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, computed_field
-from typing import Literal
+from typing import Literal, Optional, List
 
 
 class Miner(BaseModel):
@@ -10,7 +10,7 @@ class Miner(BaseModel):
     hashrate_th: float = Field(..., gt=0, description="Hashrate in TH/s")
     power_w: int = Field(..., gt=0, description="Power consumption in watts")
     cooling: Literal["air", "hydro"] = Field(..., description="Cooling method")
-    notes: str | None = Field(None, description="Additional notes")
+    notes: Optional[str] = Field(None, description="Additional notes")
 
     @computed_field
     @property
@@ -20,7 +20,7 @@ class Miner(BaseModel):
 
 
 # Miner library with example hardware
-MINER_LIBRARY: list[Miner] = [
+MINER_LIBRARY: List[Miner] = [
     Miner(
         id="antminer_s21_200th_air",
         name="Antminer S21 (200 TH/s)",
@@ -48,7 +48,7 @@ MINER_LIBRARY: list[Miner] = [
 ]
 
 
-def get_miner_by_id(miner_id: str) -> Miner | None:
+def get_miner_by_id(miner_id: str) -> Optional[Miner]:
     """Retrieve a miner from the library by ID."""
     for miner in MINER_LIBRARY:
         if miner.id == miner_id:

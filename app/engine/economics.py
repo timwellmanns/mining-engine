@@ -1,6 +1,7 @@
 """Economic calculations for mining operations."""
 
 from math import ceil
+from typing import Optional
 
 
 def calculate_daily_energy_kwh(
@@ -61,7 +62,7 @@ def calculate_daily_profit(
 def calculate_breakeven_days(
     capex_eur: float,
     daily_profit_eur: float,
-) -> int | None:
+) -> Optional[int]:
     """
     Calculate days to break even on CAPEX.
 

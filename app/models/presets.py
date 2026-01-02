@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from typing import Optional, List
 
 
 class Preset(BaseModel):
@@ -20,7 +21,7 @@ class Preset(BaseModel):
 
 
 # Preset library
-PRESET_LIBRARY: list[Preset] = [
+PRESET_LIBRARY: List[Preset] = [
     Preset(
         id="home_miner",
         name="Home Miner",
@@ -54,7 +55,7 @@ PRESET_LIBRARY: list[Preset] = [
 ]
 
 
-def get_preset_by_id(preset_id: str) -> Preset | None:
+def get_preset_by_id(preset_id: str) -> Optional[Preset]:
     """Retrieve a preset from the library by ID."""
     for preset in PRESET_LIBRARY:
         if preset.id == preset_id:

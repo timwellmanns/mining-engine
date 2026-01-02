@@ -1,16 +1,17 @@
 from pydantic import BaseModel, Field, field_validator
+from typing import Optional
 from app.core.config import ASSUMPTIONS_VERSION
 
 
 class CalculationRequest(BaseModel):
     """Request model for mining economics calculation."""
 
-    assumptions_version: str | None = Field(
+    assumptions_version: Optional[str] = Field(
         default=None,
         description="Assumptions version to use (defaults to current)",
     )
     miners_count: int = Field(..., gt=0, description="Number of mining units")
-    miner_id: str | None = Field(
+    miner_id: Optional[str] = Field(
         default=None,
         description="Miner ID from library (auto-fills power and hashrate)",
     )

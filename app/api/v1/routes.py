@@ -1,5 +1,6 @@
 """API v1 route handlers."""
 
+from typing import List
 from fastapi import APIRouter
 
 from app.models.requests import CalculationRequest
@@ -13,8 +14,8 @@ from app.engine.calc import calculate_mining_economics
 router = APIRouter()
 
 
-@router.get("/presets", response_model=list[Preset])
-def get_presets() -> list[Preset]:
+@router.get("/presets", response_model=List[Preset])
+def get_presets() -> List[Preset]:
     """Get available calculation presets."""
     return PRESET_LIBRARY
 
@@ -25,8 +26,8 @@ def get_assumptions() -> Assumptions:
     return get_default_assumptions()
 
 
-@router.get("/miners", response_model=list[Miner])
-def get_miners() -> list[Miner]:
+@router.get("/miners", response_model=List[Miner])
+def get_miners() -> List[Miner]:
     """Get mining hardware library."""
     return MINER_LIBRARY
 

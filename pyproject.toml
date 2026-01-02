@@ -7,7 +7,7 @@ name = "mining-engine"
 version = "0.1.0"
 description = "Generic Bitcoin mining economics calculator API"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
     {name = "Tim Wellmanns", email = "t.wellmanns@googlemail.com"}
@@ -32,7 +32,7 @@ include = ["app*"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py39"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

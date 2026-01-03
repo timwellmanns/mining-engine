@@ -104,7 +104,14 @@ The `/v1/live` endpoint returns real-time Bitcoin network and market data:
     "economy_fee": 5,
     "minimum_fee": 1
   },
-  "notes": ["Block subsidy computed from current block height"]
+  "difficulty": 75502165623893.72,
+  "network_hashrate_eh_s": 540.5,
+  "hashprice_usd_per_th_day": 0.0875,
+  "hashprice_eur_per_th_day": 0.0812,
+  "notes": [
+    "Block subsidy computed from current block height",
+    "Hashprice excludes tx fees (fees=0)"
+  ]
 }
 ```
 
@@ -113,6 +120,8 @@ The `/v1/live` endpoint returns real-time Bitcoin network and market data:
 - Graceful degradation: returns partial data if some endpoints fail
 - Fallback to cached data if mempool.space is temporarily unavailable
 - Block subsidy automatically computed from current height
+- Network hashrate estimated from difficulty (EH/s)
+- Hashprice computed as revenue per TH/s per day (currently excludes tx fees)
 
 ## Testing
 

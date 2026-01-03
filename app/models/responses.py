@@ -53,4 +53,14 @@ class LiveDataResponse(BaseModel):
     fees_recommended: RecommendedFees = Field(
         ..., description="Recommended fee rates in sat/vB"
     )
+    difficulty: Optional[float] = Field(None, description="Current network difficulty")
+    network_hashrate_eh_s: Optional[float] = Field(
+        None, description="Estimated network hashrate in EH/s (derived from difficulty)"
+    )
+    hashprice_usd_per_th_day: Optional[float] = Field(
+        None, description="Estimated USD revenue per TH/s per day"
+    )
+    hashprice_eur_per_th_day: Optional[float] = Field(
+        None, description="Estimated EUR revenue per TH/s per day"
+    )
     notes: List[str] = Field(default_factory=list, description="Warnings and fallback notes")

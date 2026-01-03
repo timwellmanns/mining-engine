@@ -18,7 +18,7 @@ def setup_function():
 
 def test_live_endpoint_full_success():
     """Test /v1/live with all mempool endpoints responding successfully."""
-    # Mock all three mempool API calls
+    # Mock all mempool API calls
     with patch("httpx.get") as mock_get:
 
         def mock_response(url, **kwargs):
@@ -39,6 +39,8 @@ def test_live_endpoint_full_success():
                 )
             elif "/api/blocks/tip/height" in url:
                 response.text = "825000"
+            elif "/api/v1/mining/difficulty-adjustment" in url:
+                response.json = Mock(return_value={"currentDifficulty": 75502165623893.72})
 
             return response
 
@@ -60,7 +62,19 @@ def test_live_endpoint_full_success():
         assert data["fees_recommended"]["hour_fee"] == 10
         assert data["fees_recommended"]["economy_fee"] == 5
         assert data["fees_recommended"]["minimum_fee"] == 1
+
+        # New fields: difficulty, hashrate, hashprice
+        assert data["difficulty"] == 75502165623893.72
+        assert data["network_hashrate_eh_s"] is not None
+        assert data["network_hashrate_eh_s"] > 0
+        assert data["hashprice_usd_per_th_day"] is not None
+        assert data["hashprice_usd_per_th_day"] > 0
+        assert data["hashprice_eur_per_th_day"] is not None
+        assert data["hashprice_eur_per_th_day"] > 0
+
+        # Verify notes
         assert any("Block subsidy computed" in note for note in data["notes"])
+        assert any("Hashprice excludes tx fees" in note for note in data["notes"])
 
 
 def test_live_endpoint_partial_failure_fees():
@@ -280,6 +294,111 @@ def test_live_endpoint_missing_eur_price():
         assert any("Block subsidy computed" in note for note in data["notes"])
 
 
+def test_live_endpoint_difficulty_missing():
+    """Test /v1/live when difficulty endpoint fails."""
+    with patch("httpx.get") as mock_get:
+
+        def mock_response(url, **kwargs):
+            response = Mock()
+            response.raise_for_status = Mock()
+
+            if "/api/v1/prices" in url:
+                response.json = Mock(return_value={"USD": 95000.50, "EUR": 88000.25})
+            elif "/api/v1/fees/recommended" in url:
+                response.json = Mock(
+                    return_value={
+                        "fastestFee": 20,
+                        "halfHourFee": 15,
+                        "hourFee": 10,
+                        "economyFee": 5,
+                        "minimumFee": 1,
+                    }
+                )
+            elif "/api/blocks/tip/height" in url:
+                response.text = "825000"
+            elif "/api/v1/mining/difficulty-adjustment" in url:
+                # Simulate difficulty endpoint failure
+                response.raise_for_status = Mock(
+                    side_effect=httpx.HTTPStatusError(
+                        "503 Server Error", request=Mock(), response=Mock()
+                    )
+                )
+
+            return response
+
+        mock_get.side_effect = mock_response
+
+        response = client.get("/v1/live")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Other data should still work
+        assert data["btc_price_usd"] == 95000.50
+        assert data["block_height"] == 825000
+        assert data["block_subsidy_btc"] == 6.25
+
+        # Difficulty-derived fields should be None
+        assert data["difficulty"] is None
+        assert data["network_hashrate_eh_s"] is None
+        assert data["hashprice_usd_per_th_day"] is None
+        assert data["hashprice_eur_per_th_day"] is None
+
+        # Should have note about difficulty failure
+        assert any("Failed to fetch difficulty" in note for note in data["notes"])
+
+
+def test_live_endpoint_hashrate_calculation():
+    """Test that hashrate is calculated correctly from difficulty."""
+    with patch("httpx.get") as mock_get:
+
+        def mock_response(url, **kwargs):
+            response = Mock()
+            response.raise_for_status = Mock()
+
+            if "/api/v1/prices" in url:
+                response.json = Mock(return_value={"USD": 95000.50, "EUR": 88000.25})
+            elif "/api/v1/fees/recommended" in url:
+                response.json = Mock(
+                    return_value={
+                        "fastestFee": 20,
+                        "halfHourFee": 15,
+                        "hourFee": 10,
+                        "economyFee": 5,
+                        "minimumFee": 1,
+                    }
+                )
+            elif "/api/blocks/tip/height" in url:
+                response.text = "825000"
+            elif "/api/v1/mining/difficulty-adjustment" in url:
+                # Use a known difficulty value for calculation verification
+                response.json = Mock(return_value={"currentDifficulty": 60000000000000.0})
+
+            return response
+
+        mock_get.side_effect = mock_response
+
+        response = client.get("/v1/live")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify difficulty is set
+        assert data["difficulty"] == 60000000000000.0
+
+        # Verify hashrate calculation
+        # Formula: hashrate_h_s = difficulty * 2^32 / 600
+        # hashrate_eh_s = hashrate_h_s / 1e18
+        expected_hashrate_h_s = 60000000000000.0 * (2**32) / 600
+        expected_hashrate_eh_s = round(expected_hashrate_h_s / 1e18, 2)
+
+        assert data["network_hashrate_eh_s"] == expected_hashrate_eh_s
+
+        # Verify hashprice is computed
+        assert data["hashprice_usd_per_th_day"] is not None
+        assert data["hashprice_eur_per_th_day"] is not None
+
+
 def test_live_endpoint_far_future_block_height():
     """Test /v1/live with far-future block height (>= 34 halvings)."""
     with patch("httpx.get") as mock_get:
@@ -303,6 +422,8 @@ def test_live_endpoint_far_future_block_height():
             elif "/api/blocks/tip/height" in url:
                 # Far future: 40 halvings = 210_000 * 40 = 8,400,000
                 response.text = "8400000"
+            elif "/api/v1/mining/difficulty-adjustment" in url:
+                response.json = Mock(return_value={"currentDifficulty": 75502165623893.72})
 
             return response
 
@@ -317,5 +438,10 @@ def test_live_endpoint_far_future_block_height():
         # After >= 34 halvings, subsidy should be exactly 0.0
         assert data["block_subsidy_btc"] == 0.0
 
-        # Should still have subsidy computation note
+        # Hashprice should be 0 when subsidy is 0
+        assert data["hashprice_usd_per_th_day"] == 0.0
+        assert data["hashprice_eur_per_th_day"] == 0.0
+
+        # Should have notes about subsidy and hashprice
         assert any("Block subsidy computed" in note for note in data["notes"])
+        assert any("Hashprice excludes tx fees" in note for note in data["notes"])

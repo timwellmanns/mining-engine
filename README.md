@@ -17,6 +17,7 @@ A generic Bitcoin mining economics calculator API built with FastAPI.
 - `GET /v1/assumptions` - Current calculation assumptions and version
 - `GET /v1/miners` - Library of mining hardware specifications
 - `POST /v1/calculate` - Calculate mining economics
+- `GET /v1/live` - Live Bitcoin network and market data from mempool.space
 
 ## Quick Start
 
@@ -52,6 +53,8 @@ docker run -p 8000:8000 mining-engine
 Environment variables:
 
 - `CORS_ORIGINS` - Comma-separated list of additional CORS origins (optional)
+- `MEMPOOL_BASE_URL` - Base URL for mempool.space API (default: `https://mempool.space`)
+- `LIVE_CACHE_TTL_SECONDS` - Cache duration for live data in seconds (default: `60`)
 
 ## Example Usage
 
@@ -61,6 +64,9 @@ curl http://localhost:8000/health
 
 # Get miner library
 curl http://localhost:8000/v1/miners
+
+# Get live Bitcoin network data
+curl http://localhost:8000/v1/live
 
 # Calculate mining economics
 curl -X POST http://localhost:8000/v1/calculate \
@@ -78,6 +84,35 @@ curl -X POST http://localhost:8000/v1/calculate \
     "horizon_days": 365
   }'
 ```
+
+### Live Data Response Example
+
+The `/v1/live` endpoint returns real-time Bitcoin network and market data:
+
+```json
+{
+  "source": "mempool.space",
+  "updated_at": "2026-01-03T12:00:00.000000Z",
+  "btc_price_usd": 95000.50,
+  "btc_price_eur": 88000.25,
+  "block_height": 825000,
+  "block_subsidy_btc": 6.25,
+  "fees_recommended": {
+    "fastest_fee": 20,
+    "half_hour_fee": 15,
+    "hour_fee": 10,
+    "economy_fee": 5,
+    "minimum_fee": 1
+  },
+  "notes": ["Block subsidy computed from current block height"]
+}
+```
+
+**Features:**
+- 60-second in-memory cache to prevent rate bursts
+- Graceful degradation: returns partial data if some endpoints fail
+- Fallback to cached data if mempool.space is temporarily unavailable
+- Block subsidy automatically computed from current height
 
 ## Testing
 

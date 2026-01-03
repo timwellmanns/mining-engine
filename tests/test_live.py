@@ -49,17 +49,18 @@ def test_live_endpoint_full_success():
         assert response.status_code == 200
         data = response.json()
 
-        assert data["source"] == "mempool"
-        assert "fetched_at_iso" in data
+        assert data["source"] == "mempool.space"
+        assert "updated_at" in data
         assert data["btc_price_usd"] == 95000.50
         assert data["btc_price_eur"] == 88000.25
-        assert data["tip_height"] == 825000
-        assert data["recommended_fees_sat_vb"]["fastest"] == 20
-        assert data["recommended_fees_sat_vb"]["half_hour"] == 15
-        assert data["recommended_fees_sat_vb"]["hour"] == 10
-        assert data["recommended_fees_sat_vb"]["economy"] == 5
-        assert data["recommended_fees_sat_vb"]["minimum"] == 1
-        assert len(data["notes"]) == 0  # No errors
+        assert data["block_height"] == 825000
+        assert data["block_subsidy_btc"] == 6.25  # 825000 / 210000 = 3 halvings, 50 / 2^3 = 6.25
+        assert data["fees_recommended"]["fastest_fee"] == 20
+        assert data["fees_recommended"]["half_hour_fee"] == 15
+        assert data["fees_recommended"]["hour_fee"] == 10
+        assert data["fees_recommended"]["economy_fee"] == 5
+        assert data["fees_recommended"]["minimum_fee"] == 1
+        assert any("Block subsidy computed" in note for note in data["notes"])
 
 
 def test_live_endpoint_partial_failure_fees():
@@ -94,14 +95,16 @@ def test_live_endpoint_partial_failure_fees():
 
         # Prices and height should still work
         assert data["btc_price_usd"] == 95000.50
-        assert data["tip_height"] == 825000
+        assert data["block_height"] == 825000
+        assert data["block_subsidy_btc"] == 6.25
 
         # Fees should be null/empty
-        assert data["recommended_fees_sat_vb"]["fastest"] is None
-        assert data["recommended_fees_sat_vb"]["half_hour"] is None
+        assert data["fees_recommended"]["fastest_fee"] is None
+        assert data["fees_recommended"]["half_hour_fee"] is None
 
-        # Should have a note about fees failure
+        # Should have notes about fees failure and subsidy computation
         assert any("Failed to fetch fees" in note for note in data["notes"])
+        assert any("Block subsidy computed" in note for note in data["notes"])
 
 
 def test_live_endpoint_partial_failure_prices():
@@ -143,15 +146,17 @@ def test_live_endpoint_partial_failure_prices():
         data = response.json()
 
         # Fees and height should still work
-        assert data["recommended_fees_sat_vb"]["fastest"] == 20
-        assert data["tip_height"] == 825000
+        assert data["fees_recommended"]["fastest_fee"] == 20
+        assert data["block_height"] == 825000
+        assert data["block_subsidy_btc"] == 6.25
 
         # Prices should be null
         assert data["btc_price_usd"] is None
         assert data["btc_price_eur"] is None
 
-        # Should have a note about prices failure
+        # Should have notes about prices failure and subsidy computation
         assert any("Failed to fetch prices" in note for note in data["notes"])
+        assert any("Block subsidy computed" in note for note in data["notes"])
 
 
 def test_live_endpoint_cache_fallback():
@@ -188,7 +193,7 @@ def test_live_endpoint_cache_fallback():
         response1 = client.get("/v1/live")
         assert response1.status_code == 200
         data1 = response1.json()
-        cached_timestamp = data1["fetched_at_iso"]
+        cached_timestamp = data1["updated_at"]
 
     # Manually expire the cache by setting timestamp to past
     live_data_module._cache_timestamp = datetime.utcnow() - timedelta(seconds=61)
@@ -203,7 +208,8 @@ def test_live_endpoint_cache_fallback():
 
         # Should return cached data
         assert data2["btc_price_usd"] == 95000.50
-        assert data2["tip_height"] == 825000
+        assert data2["block_height"] == 825000
+        assert data2["block_subsidy_btc"] == 6.25
 
         # Should have note about using cached data
         assert any("Using cached data" in note for note in data2["notes"])
@@ -223,8 +229,9 @@ def test_live_endpoint_no_cache_all_fail():
         # All data should be null
         assert data["btc_price_usd"] is None
         assert data["btc_price_eur"] is None
-        assert data["tip_height"] is None
-        assert data["recommended_fees_sat_vb"]["fastest"] is None
+        assert data["block_height"] is None
+        assert data["block_subsidy_btc"] is None
+        assert data["fees_recommended"]["fastest_fee"] is None
 
         # Should have notes about failures and no cache
         assert any("No cached data available" in note for note in data["notes"])
@@ -265,6 +272,9 @@ def test_live_endpoint_missing_eur_price():
 
         assert data["btc_price_usd"] == 95000.50
         assert data["btc_price_eur"] is None
+        assert data["block_height"] == 825000
+        assert data["block_subsidy_btc"] == 6.25
 
-        # Should have note about missing EUR
+        # Should have notes about missing EUR and subsidy computation
         assert any("EUR price not available" in note for note in data["notes"])
+        assert any("Block subsidy computed" in note for note in data["notes"])

@@ -32,22 +32,25 @@ class HealthResponse(BaseModel):
 class RecommendedFees(BaseModel):
     """Recommended fee rates in sat/vB."""
 
-    fastest: Optional[int] = Field(None, description="Fastest confirmation (~10 min)")
-    half_hour: Optional[int] = Field(None, description="Half hour confirmation (~30 min)")
-    hour: Optional[int] = Field(None, description="Hour confirmation (~60 min)")
-    economy: Optional[int] = Field(None, description="Economy confirmation (~few hours)")
-    minimum: Optional[int] = Field(None, description="Minimum relay fee")
+    fastest_fee: Optional[int] = Field(None, description="Fastest confirmation (~10 min)")
+    half_hour_fee: Optional[int] = Field(None, description="Half hour confirmation (~30 min)")
+    hour_fee: Optional[int] = Field(None, description="Hour confirmation (~60 min)")
+    economy_fee: Optional[int] = Field(None, description="Economy confirmation (~few hours)")
+    minimum_fee: Optional[int] = Field(None, description="Minimum relay fee")
 
 
 class LiveDataResponse(BaseModel):
     """Live Bitcoin network and market data from mempool.space."""
 
-    source: str = Field(default="mempool", description="Data source identifier")
-    fetched_at_iso: str = Field(..., description="UTC ISO timestamp of data fetch")
+    source: str = Field(default="mempool.space", description="Data source identifier")
+    updated_at: str = Field(..., description="UTC ISO timestamp of data fetch")
     btc_price_usd: Optional[float] = Field(None, description="Current BTC price in USD")
     btc_price_eur: Optional[float] = Field(None, description="Current BTC price in EUR")
-    tip_height: Optional[int] = Field(None, description="Current blockchain tip height")
-    recommended_fees_sat_vb: RecommendedFees = Field(
+    block_height: Optional[int] = Field(None, description="Current blockchain tip height")
+    block_subsidy_btc: Optional[float] = Field(
+        None, description="Current block subsidy in BTC (computed from block height)"
+    )
+    fees_recommended: RecommendedFees = Field(
         ..., description="Recommended fee rates in sat/vB"
     )
     notes: List[str] = Field(default_factory=list, description="Warnings and fallback notes")

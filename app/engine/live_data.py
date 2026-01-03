@@ -25,6 +25,35 @@ def _is_cache_valid() -> bool:
     return age < timedelta(seconds=CACHE_TTL_SECONDS)
 
 
+def _calculate_block_subsidy(block_height: Optional[int]) -> Optional[float]:
+    """
+    Calculate the current block subsidy based on block height.
+
+    Bitcoin started with 50 BTC per block and halves every 210,000 blocks.
+
+    Args:
+        block_height: Current blockchain tip height
+
+    Returns:
+        Current block subsidy in BTC, or None if height is unavailable
+    """
+    if block_height is None:
+        return None
+
+    # Initial subsidy was 50 BTC
+    initial_subsidy = 50.0
+    # Halving occurs every 210,000 blocks
+    halving_interval = 210_000
+
+    # Calculate number of halvings that have occurred
+    halvings = block_height // halving_interval
+
+    # Subsidy after n halvings: 50 / (2^n)
+    subsidy = initial_subsidy / (2**halvings)
+
+    return subsidy
+
+
 def _fetch_mempool_prices() -> tuple[Optional[float], Optional[float], list[str]]:
     """
     Fetch BTC prices from mempool.space.
@@ -68,11 +97,11 @@ def _fetch_mempool_fees() -> tuple[RecommendedFees, list[str]]:
         data = response.json()
 
         fees = RecommendedFees(
-            fastest=data.get("fastestFee"),
-            half_hour=data.get("halfHourFee"),
-            hour=data.get("hourFee"),
-            economy=data.get("economyFee"),
-            minimum=data.get("minimumFee"),
+            fastest_fee=data.get("fastestFee"),
+            half_hour_fee=data.get("halfHourFee"),
+            hour_fee=data.get("hourFee"),
+            economy_fee=data.get("economyFee"),
+            minimum_fee=data.get("minimumFee"),
         )
 
         return fees, notes
@@ -137,11 +166,11 @@ def fetch_live_data() -> LiveDataResponse:
         or tip_height is not None
         or any(
             [
-                fees.fastest,
-                fees.half_hour,
-                fees.hour,
-                fees.economy,
-                fees.minimum,
+                fees.fastest_fee,
+                fees.half_hour_fee,
+                fees.hour_fee,
+                fees.economy_fee,
+                fees.minimum_fee,
             ]
         )
     )
@@ -149,7 +178,7 @@ def fetch_live_data() -> LiveDataResponse:
     # If all fetches failed and we have cached data, return it with a note
     if not has_any_data and _cache is not None:
         notes.append(
-            f"Using cached data from {_cache.fetched_at_iso} (mempool temporarily unavailable)"
+            f"Using cached data from {_cache.updated_at} (mempool temporarily unavailable)"
         )
         # Return a copy of cache with updated notes
         cached_response = _cache.model_copy(deep=True)
@@ -160,15 +189,21 @@ def fetch_live_data() -> LiveDataResponse:
     if not has_any_data:
         notes.append("No cached data available; mempool.space is unreachable")
 
+    # Calculate block subsidy from height
+    block_subsidy = _calculate_block_subsidy(tip_height)
+    if block_subsidy is not None:
+        notes.append("Block subsidy computed from current block height")
+
     # Create new response
     now = datetime.utcnow()
     response = LiveDataResponse(
-        source="mempool",
-        fetched_at_iso=now.isoformat() + "Z",
+        source="mempool.space",
+        updated_at=now.isoformat() + "Z",
         btc_price_usd=usd_price,
         btc_price_eur=eur_price,
-        tip_height=tip_height,
-        recommended_fees_sat_vb=fees,
+        block_height=tip_height,
+        block_subsidy_btc=block_subsidy,
+        fees_recommended=fees,
         notes=notes,
     )
 

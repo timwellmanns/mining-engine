@@ -27,3 +27,27 @@ class HealthResponse(BaseModel):
 
     status: str = Field(default="ok")
     service: str = Field(default="mining-engine")
+
+
+class RecommendedFees(BaseModel):
+    """Recommended fee rates in sat/vB."""
+
+    fastest: Optional[int] = Field(None, description="Fastest confirmation (~10 min)")
+    half_hour: Optional[int] = Field(None, description="Half hour confirmation (~30 min)")
+    hour: Optional[int] = Field(None, description="Hour confirmation (~60 min)")
+    economy: Optional[int] = Field(None, description="Economy confirmation (~few hours)")
+    minimum: Optional[int] = Field(None, description="Minimum relay fee")
+
+
+class LiveDataResponse(BaseModel):
+    """Live Bitcoin network and market data from mempool.space."""
+
+    source: str = Field(default="mempool", description="Data source identifier")
+    fetched_at_iso: str = Field(..., description="UTC ISO timestamp of data fetch")
+    btc_price_usd: Optional[float] = Field(None, description="Current BTC price in USD")
+    btc_price_eur: Optional[float] = Field(None, description="Current BTC price in EUR")
+    tip_height: Optional[int] = Field(None, description="Current blockchain tip height")
+    recommended_fees_sat_vb: RecommendedFees = Field(
+        ..., description="Recommended fee rates in sat/vB"
+    )
+    notes: List[str] = Field(default_factory=list, description="Warnings and fallback notes")

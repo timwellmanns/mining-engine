@@ -11,6 +11,7 @@ from app.models.responses import LiveDataResponse, RecommendedFees
 # Configuration from environment
 MEMPOOL_BASE_URL = os.getenv("MEMPOOL_BASE_URL", "https://mempool.space")
 CACHE_TTL_SECONDS = int(os.getenv("LIVE_CACHE_TTL_SECONDS", "60"))
+FEE_WINDOW_BLOCKS = int(os.getenv("LIVE_FEE_WINDOW_BLOCKS", "24"))
 
 # In-process cache
 _cache: Optional[LiveDataResponse] = None
@@ -163,6 +164,64 @@ def _fetch_mempool_difficulty() -> tuple[Optional[float], list[str]]:
         return None, notes
 
 
+def _fetch_recent_block_fees_btc() -> tuple[Optional[float], Optional[int], list[str]]:
+    """
+    Fetch average transaction fees per block from recent blocks.
+
+    Returns:
+        (avg_fees_btc_per_block, fee_window_blocks, notes)
+    """
+    notes = []
+    try:
+        url = f"{MEMPOOL_BASE_URL}/api/v1/blocks"
+        response = httpx.get(url, timeout=3.0)
+        response.raise_for_status()
+        blocks = response.json()
+
+        if not isinstance(blocks, list) or len(blocks) == 0:
+            notes.append("No block data available from mempool")
+            return None, None, notes
+
+        # Limit to configured window or available blocks
+        window = min(FEE_WINDOW_BLOCKS, len(blocks))
+        fee_values = []
+
+        for block in blocks[:window]:
+            # Tolerant parsing: try common field names
+            fee = block.get("fee") or block.get("fees") or block.get("totalFees")
+
+            if fee is not None:
+                fee_float = float(fee)
+
+                # Unit detection heuristic
+                # If value > 1000, likely in satoshis; if < 10, likely in BTC
+                if fee_float > 1000:
+                    # Convert from satoshis to BTC
+                    fee_btc = fee_float / 1e8
+                    if len(fee_values) == 0:  # Note only once
+                        notes.append("Converted fees from satoshis to BTC")
+                else:
+                    fee_btc = fee_float
+
+                fee_values.append(fee_btc)
+
+        if len(fee_values) == 0:
+            notes.append("No fee data found in recent blocks")
+            return None, None, notes
+
+        # Compute average
+        avg_fees = sum(fee_values) / len(fee_values)
+
+        # Round to 8 decimals (BTC precision)
+        avg_fees_btc = round(avg_fees, 8)
+
+        return avg_fees_btc, len(fee_values), notes
+
+    except Exception as e:
+        notes.append(f"Failed to fetch block fees: {str(e)}")
+        return None, None, notes
+
+
 def _estimate_hashrate_eh_s(difficulty: Optional[float]) -> Optional[float]:
     """
     Estimate network hashrate in EH/s from difficulty.
@@ -194,18 +253,22 @@ def _compute_hashprice_per_th_day(
     btc_price_usd: Optional[float],
     btc_price_eur: Optional[float],
     difficulty: Optional[float],
+    avg_fees_btc_per_block: Optional[float] = None,
+    fee_window_blocks: Optional[int] = None,
 ) -> tuple[Optional[float], Optional[float], list[str]]:
     """
     Compute hashprice (revenue per TH/s per day) in USD and EUR.
 
     Estimates daily miner revenue per TH from network economics.
-    Currently excludes transaction fees (set to 0).
+    Includes transaction fees if available.
 
     Args:
         block_subsidy_btc: Current block subsidy in BTC
         btc_price_usd: BTC price in USD
         btc_price_eur: BTC price in EUR
         difficulty: Current network difficulty
+        avg_fees_btc_per_block: Average tx fees per block in BTC (optional)
+        fee_window_blocks: Number of blocks used for fee average (optional)
 
     Returns:
         (hashprice_usd, hashprice_eur, notes)
@@ -223,8 +286,13 @@ def _compute_hashprice_per_th_day(
     # Blocks per day (144 = 24 * 60 / 10)
     blocks_per_day = 144
 
-    # Network BTC per day (excluding tx fees for now)
-    network_btc_per_day = block_subsidy_btc * blocks_per_day
+    # Network BTC per day (subsidy + fees)
+    if avg_fees_btc_per_block is not None and avg_fees_btc_per_block > 0:
+        network_btc_per_day = (block_subsidy_btc + avg_fees_btc_per_block) * blocks_per_day
+        notes.append(f"Hashprice includes avg tx fees ({fee_window_blocks} blocks)")
+    else:
+        network_btc_per_day = block_subsidy_btc * blocks_per_day
+        notes.append("Hashprice excludes tx fees (fees unavailable)")
 
     # BTC per TH per day
     btc_per_th_day = network_btc_per_day / network_hashrate_th_s
@@ -238,9 +306,6 @@ def _compute_hashprice_per_th_day(
 
     if btc_price_eur is not None:
         hashprice_eur = round(btc_per_th_day * btc_price_eur, 4)
-
-    # Add note about tx fees being excluded
-    notes.append("Hashprice excludes tx fees (fees=0)")
 
     return hashprice_usd, hashprice_eur, notes
 
@@ -276,12 +341,16 @@ def fetch_live_data() -> LiveDataResponse:
     difficulty, difficulty_notes = _fetch_mempool_difficulty()
     notes.extend(difficulty_notes)
 
+    avg_fees_btc, fee_window, fee_fetch_notes = _fetch_recent_block_fees_btc()
+    notes.extend(fee_fetch_notes)
+
     # Check if we got any data at all
     has_any_data = (
         usd_price is not None
         or eur_price is not None
         or tip_height is not None
         or difficulty is not None
+        or avg_fees_btc is not None
         or any(
             [
                 fees.fastest_fee,
@@ -315,9 +384,9 @@ def fetch_live_data() -> LiveDataResponse:
     # Estimate network hashrate from difficulty
     network_hashrate_eh_s = _estimate_hashrate_eh_s(difficulty)
 
-    # Compute hashprice (revenue per TH/s per day)
+    # Compute hashprice (revenue per TH/s per day) including fees if available
     hashprice_usd, hashprice_eur, hashprice_notes = _compute_hashprice_per_th_day(
-        block_subsidy, usd_price, eur_price, difficulty
+        block_subsidy, usd_price, eur_price, difficulty, avg_fees_btc, fee_window
     )
     notes.extend(hashprice_notes)
 
@@ -333,6 +402,8 @@ def fetch_live_data() -> LiveDataResponse:
         fees_recommended=fees,
         difficulty=difficulty,
         network_hashrate_eh_s=network_hashrate_eh_s,
+        avg_fees_btc_per_block=avg_fees_btc,
+        fee_window_blocks=fee_window,
         hashprice_usd_per_th_day=hashprice_usd,
         hashprice_eur_per_th_day=hashprice_eur,
         notes=notes,

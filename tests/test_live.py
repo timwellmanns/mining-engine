@@ -41,6 +41,15 @@ def test_live_endpoint_full_success():
                 response.text = "825000"
             elif "/api/v1/mining/difficulty-adjustment" in url:
                 response.json = Mock(return_value={"currentDifficulty": 75502165623893.72})
+            elif "/api/v1/blocks" in url:
+                # Mock recent blocks with fees in BTC
+                response.json = Mock(
+                    return_value=[
+                        {"fee": 0.25},
+                        {"fee": 0.30},
+                        {"fee": 0.28},
+                    ]
+                )
 
             return response
 
@@ -67,6 +76,13 @@ def test_live_endpoint_full_success():
         assert data["difficulty"] == 75502165623893.72
         assert data["network_hashrate_eh_s"] is not None
         assert data["network_hashrate_eh_s"] > 0
+
+        # Fee fields
+        assert data["avg_fees_btc_per_block"] is not None
+        assert data["avg_fees_btc_per_block"] > 0
+        assert data["fee_window_blocks"] == 3
+
+        # Hashprice (should include fees)
         assert data["hashprice_usd_per_th_day"] is not None
         assert data["hashprice_usd_per_th_day"] > 0
         assert data["hashprice_eur_per_th_day"] is not None
@@ -74,7 +90,7 @@ def test_live_endpoint_full_success():
 
         # Verify notes
         assert any("Block subsidy computed" in note for note in data["notes"])
-        assert any("Hashprice excludes tx fees" in note for note in data["notes"])
+        assert any("Hashprice includes avg tx fees" in note for note in data["notes"])
 
 
 def test_live_endpoint_partial_failure_fees():
@@ -444,4 +460,116 @@ def test_live_endpoint_far_future_block_height():
 
         # Should have notes about subsidy and hashprice
         assert any("Block subsidy computed" in note for note in data["notes"])
-        assert any("Hashprice excludes tx fees" in note for note in data["notes"])
+        assert any("Hashprice" in note for note in data["notes"])
+
+
+def test_live_endpoint_block_fees_missing():
+    """Test /v1/live when block fees endpoint fails."""
+    with patch("httpx.get") as mock_get:
+
+        def mock_response(url, **kwargs):
+            response = Mock()
+            response.raise_for_status = Mock()
+
+            if "/api/v1/prices" in url:
+                response.json = Mock(return_value={"USD": 95000.50, "EUR": 88000.25})
+            elif "/api/v1/fees/recommended" in url:
+                response.json = Mock(
+                    return_value={
+                        "fastestFee": 20,
+                        "halfHourFee": 15,
+                        "hourFee": 10,
+                        "economyFee": 5,
+                        "minimumFee": 1,
+                    }
+                )
+            elif "/api/blocks/tip/height" in url:
+                response.text = "825000"
+            elif "/api/v1/mining/difficulty-adjustment" in url:
+                response.json = Mock(return_value={"currentDifficulty": 75502165623893.72})
+            elif "/api/v1/blocks" in url:
+                # Simulate blocks endpoint failure
+                response.raise_for_status = Mock(
+                    side_effect=httpx.HTTPStatusError(
+                        "503 Server Error", request=Mock(), response=Mock()
+                    )
+                )
+
+            return response
+
+        mock_get.side_effect = mock_response
+
+        response = client.get("/v1/live")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Other data should still work
+        assert data["btc_price_usd"] == 95000.50
+        assert data["difficulty"] == 75502165623893.72
+
+        # Fee fields should be None when unavailable
+        assert data["avg_fees_btc_per_block"] is None
+        assert data["fee_window_blocks"] is None
+
+        # Hashprice should still be computed (subsidy only)
+        assert data["hashprice_usd_per_th_day"] is not None
+        assert data["hashprice_eur_per_th_day"] is not None
+
+        # Should have notes about fee failure and hashprice excluding fees
+        assert any("Failed to fetch block fees" in note for note in data["notes"])
+        assert any("Hashprice excludes tx fees (fees unavailable)" in note for note in data["notes"])
+
+
+def test_live_endpoint_fee_unit_conversion():
+    """Test /v1/live correctly converts fees from satoshis to BTC."""
+    with patch("httpx.get") as mock_get:
+
+        def mock_response(url, **kwargs):
+            response = Mock()
+            response.raise_for_status = Mock()
+
+            if "/api/v1/prices" in url:
+                response.json = Mock(return_value={"USD": 95000.50, "EUR": 88000.25})
+            elif "/api/v1/fees/recommended" in url:
+                response.json = Mock(
+                    return_value={
+                        "fastestFee": 20,
+                        "halfHourFee": 15,
+                        "hourFee": 10,
+                        "economyFee": 5,
+                        "minimumFee": 1,
+                    }
+                )
+            elif "/api/blocks/tip/height" in url:
+                response.text = "825000"
+            elif "/api/v1/mining/difficulty-adjustment" in url:
+                response.json = Mock(return_value={"currentDifficulty": 75502165623893.72})
+            elif "/api/v1/blocks" in url:
+                # Mock blocks with fees in satoshis (large numbers)
+                response.json = Mock(
+                    return_value=[
+                        {"fee": 25000000},  # 0.25 BTC in sats
+                        {"fee": 30000000},  # 0.30 BTC in sats
+                        {"fee": 28000000},  # 0.28 BTC in sats
+                    ]
+                )
+
+            return response
+
+        mock_get.side_effect = mock_response
+
+        response = client.get("/v1/live")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify fees were converted from sats to BTC
+        # Average of (0.25, 0.30, 0.28) = 0.27666667 rounded to 8 decimals
+        expected_avg = round((0.25 + 0.30 + 0.28) / 3, 8)
+        assert data["avg_fees_btc_per_block"] == expected_avg
+        assert data["fee_window_blocks"] == 3
+
+        # Should have note about conversion
+        assert any("Converted fees from satoshis to BTC" in note for note in data["notes"])
+        assert any("Hashprice includes avg tx fees" in note for note in data["notes"])

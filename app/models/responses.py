@@ -57,10 +57,16 @@ class LiveDataResponse(BaseModel):
     network_hashrate_eh_s: Optional[float] = Field(
         None, description="Estimated network hashrate in EH/s (derived from difficulty)"
     )
+    avg_fees_btc_per_block: Optional[float] = Field(
+        None, description="Average transaction fees per block in BTC (over recent blocks)"
+    )
+    fee_window_blocks: Optional[int] = Field(
+        None, description="Number of recent blocks used for fee average"
+    )
     hashprice_usd_per_th_day: Optional[float] = Field(
-        None, description="Estimated USD revenue per TH/s per day"
+        None, description="Estimated USD revenue per TH/s per day (includes fees if available)"
     )
     hashprice_eur_per_th_day: Optional[float] = Field(
-        None, description="Estimated EUR revenue per TH/s per day"
+        None, description="Estimated EUR revenue per TH/s per day (includes fees if available)"
     )
     notes: List[str] = Field(default_factory=list, description="Warnings and fallback notes")

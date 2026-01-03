@@ -55,6 +55,7 @@ Environment variables:
 - `CORS_ORIGINS` - Comma-separated list of additional CORS origins (optional)
 - `MEMPOOL_BASE_URL` - Base URL for mempool.space API (default: `https://mempool.space`)
 - `LIVE_CACHE_TTL_SECONDS` - Cache duration for live data in seconds (default: `60`)
+- `LIVE_FEE_WINDOW_BLOCKS` - Number of recent blocks for fee averaging (default: `24`)
 
 ## Example Usage
 
@@ -106,11 +107,13 @@ The `/v1/live` endpoint returns real-time Bitcoin network and market data:
   },
   "difficulty": 75502165623893.72,
   "network_hashrate_eh_s": 540.5,
-  "hashprice_usd_per_th_day": 0.0875,
-  "hashprice_eur_per_th_day": 0.0812,
+  "avg_fees_btc_per_block": 0.27,
+  "fee_window_blocks": 24,
+  "hashprice_usd_per_th_day": 0.0951,
+  "hashprice_eur_per_th_day": 0.0882,
   "notes": [
     "Block subsidy computed from current block height",
-    "Hashprice excludes tx fees (fees=0)"
+    "Hashprice includes avg tx fees (24 blocks)"
   ]
 }
 ```
@@ -121,7 +124,13 @@ The `/v1/live` endpoint returns real-time Bitcoin network and market data:
 - Fallback to cached data if mempool.space is temporarily unavailable
 - Block subsidy automatically computed from current height
 - Network hashrate estimated from difficulty (EH/s)
-- Hashprice computed as revenue per TH/s per day (currently excludes tx fees)
+- Average transaction fees computed from recent blocks (configurable window)
+- Hashprice computed as revenue per TH/s per day (includes tx fees when available)
+
+**Performance Notes:**
+- Fee window defaults to 24 blocks for optimal performance on free-tier hosting
+- Larger windows (up to 144) provide more stable averages but may increase latency
+- All mempool.space API calls have 3-second timeouts
 
 ## Testing
 

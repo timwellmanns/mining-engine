@@ -39,15 +39,22 @@ def test_live_endpoint_full_success():
                 )
             elif "/api/blocks/tip/height" in url:
                 response.text = "825000"
-            elif "/api/v1/mining/difficulty-adjustment" in url:
-                response.json = Mock(return_value={"currentDifficulty": 75502165623893.72})
             elif "/api/v1/blocks" in url:
-                # Mock recent blocks with fees in BTC
+                # Mock recent blocks with difficulty and fees
                 response.json = Mock(
                     return_value=[
-                        {"fee": 0.25},
-                        {"fee": 0.30},
-                        {"fee": 0.28},
+                        {
+                            "difficulty": 75502165623893.72,
+                            "extras": {"totalFees": 25000000}  # 0.25 BTC in sats
+                        },
+                        {
+                            "difficulty": 75502165623893.72,
+                            "extras": {"totalFees": 30000000}  # 0.30 BTC in sats
+                        },
+                        {
+                            "difficulty": 75502165623893.72,
+                            "extras": {"totalFees": 28000000}  # 0.28 BTC in sats
+                        },
                     ]
                 )
 
@@ -311,16 +318,17 @@ def test_live_endpoint_missing_eur_price():
 
 
 def test_live_endpoint_difficulty_missing():
-    """Test /v1/live when difficulty endpoint fails."""
+    """Test /v1/live when difficulty/blocks endpoint fails."""
     with patch("httpx.get") as mock_get:
 
         def mock_response(url, **kwargs):
             response = Mock()
-            response.raise_for_status = Mock()
 
             if "/api/v1/prices" in url:
+                response.raise_for_status = Mock()
                 response.json = Mock(return_value={"USD": 95000.50, "EUR": 88000.25})
             elif "/api/v1/fees/recommended" in url:
+                response.raise_for_status = Mock()
                 response.json = Mock(
                     return_value={
                         "fastestFee": 20,
@@ -331,9 +339,10 @@ def test_live_endpoint_difficulty_missing():
                     }
                 )
             elif "/api/blocks/tip/height" in url:
+                response.raise_for_status = Mock()
                 response.text = "825000"
-            elif "/api/v1/mining/difficulty-adjustment" in url:
-                # Simulate difficulty endpoint failure
+            elif "/api/v1/blocks" in url:
+                # Simulate blocks endpoint failure (used for both difficulty and fees)
                 response.raise_for_status = Mock(
                     side_effect=httpx.HTTPStatusError(
                         "503 Server Error", request=Mock(), response=Mock()
@@ -354,14 +363,19 @@ def test_live_endpoint_difficulty_missing():
         assert data["block_height"] == 825000
         assert data["block_subsidy_btc"] == 6.25
 
-        # Difficulty-derived fields should be None
+        # Difficulty-derived fields should be None (blocks endpoint failed)
         assert data["difficulty"] is None
         assert data["network_hashrate_eh_s"] is None
         assert data["hashprice_usd_per_th_day"] is None
         assert data["hashprice_eur_per_th_day"] is None
 
-        # Should have note about difficulty failure
+        # Fees should also be None (same endpoint)
+        assert data["avg_fees_btc_per_block"] is None
+        assert data["fee_window_blocks"] is None
+
+        # Should have notes about both failures
         assert any("Failed to fetch difficulty" in note for note in data["notes"])
+        assert any("Failed to fetch block fees" in note for note in data["notes"])
 
 
 def test_live_endpoint_hashrate_calculation():
@@ -386,9 +400,16 @@ def test_live_endpoint_hashrate_calculation():
                 )
             elif "/api/blocks/tip/height" in url:
                 response.text = "825000"
-            elif "/api/v1/mining/difficulty-adjustment" in url:
+            elif "/api/v1/blocks" in url:
                 # Use a known difficulty value for calculation verification
-                response.json = Mock(return_value={"currentDifficulty": 60000000000000.0})
+                response.json = Mock(
+                    return_value=[
+                        {
+                            "difficulty": 60000000000000.0,
+                            "extras": {"totalFees": 25000000}
+                        }
+                    ]
+                )
 
             return response
 
@@ -438,8 +459,15 @@ def test_live_endpoint_far_future_block_height():
             elif "/api/blocks/tip/height" in url:
                 # Far future: 40 halvings = 210_000 * 40 = 8,400,000
                 response.text = "8400000"
-            elif "/api/v1/mining/difficulty-adjustment" in url:
-                response.json = Mock(return_value={"currentDifficulty": 75502165623893.72})
+            elif "/api/v1/blocks" in url:
+                # Mock blocks with difficulty but no fees (testing subsidy=0 scenario)
+                response.json = Mock(
+                    return_value=[
+                        {
+                            "difficulty": 75502165623893.72,
+                        }
+                    ]
+                )
 
             return response
 
@@ -485,8 +513,6 @@ def test_live_endpoint_block_fees_missing():
                 )
             elif "/api/blocks/tip/height" in url:
                 response.text = "825000"
-            elif "/api/v1/mining/difficulty-adjustment" in url:
-                response.json = Mock(return_value={"currentDifficulty": 75502165623893.72})
             elif "/api/v1/blocks" in url:
                 # Simulate blocks endpoint failure
                 response.raise_for_status = Mock(
@@ -504,21 +530,20 @@ def test_live_endpoint_block_fees_missing():
         assert response.status_code == 200
         data = response.json()
 
-        # Other data should still work
+        # Price data should still work
         assert data["btc_price_usd"] == 95000.50
-        assert data["difficulty"] == 75502165623893.72
 
-        # Fee fields should be None when unavailable
+        # When blocks endpoint fails, both difficulty and fees should be None
+        assert data["difficulty"] is None
         assert data["avg_fees_btc_per_block"] is None
         assert data["fee_window_blocks"] is None
 
-        # Hashprice should still be computed (subsidy only)
-        assert data["hashprice_usd_per_th_day"] is not None
-        assert data["hashprice_eur_per_th_day"] is not None
+        # Hashprice cannot be computed without difficulty
+        assert data["hashprice_usd_per_th_day"] is None
+        assert data["hashprice_eur_per_th_day"] is None
 
-        # Should have notes about fee failure and hashprice excluding fees
-        assert any("Failed to fetch block fees" in note for note in data["notes"])
-        assert any("Hashprice excludes tx fees (fees unavailable)" in note for note in data["notes"])
+        # Should have notes about failures
+        assert any("Failed to fetch difficulty" in note or "Failed to fetch block fees" in note for note in data["notes"])
 
 
 def test_live_endpoint_fee_unit_conversion():
@@ -543,15 +568,13 @@ def test_live_endpoint_fee_unit_conversion():
                 )
             elif "/api/blocks/tip/height" in url:
                 response.text = "825000"
-            elif "/api/v1/mining/difficulty-adjustment" in url:
-                response.json = Mock(return_value={"currentDifficulty": 75502165623893.72})
             elif "/api/v1/blocks" in url:
-                # Mock blocks with fees in satoshis (large numbers)
+                # Mock blocks with fees in satoshis (large numbers) and difficulty
                 response.json = Mock(
                     return_value=[
-                        {"fee": 25000000},  # 0.25 BTC in sats
-                        {"fee": 30000000},  # 0.30 BTC in sats
-                        {"fee": 28000000},  # 0.28 BTC in sats
+                        {"difficulty": 75502165623893.72, "fee": 25000000},  # 0.25 BTC in sats
+                        {"difficulty": 75502165623893.72, "fee": 30000000},  # 0.30 BTC in sats
+                        {"difficulty": 75502165623893.72, "fee": 28000000},  # 0.28 BTC in sats
                     ]
                 )
 

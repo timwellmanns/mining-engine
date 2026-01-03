@@ -141,21 +141,27 @@ def _fetch_mempool_difficulty() -> tuple[Optional[float], list[str]]:
     """
     Fetch current network difficulty from mempool.space.
 
+    Uses /api/v1/blocks endpoint and extracts difficulty from the most recent block.
+
     Returns:
         (difficulty, notes)
     """
     notes = []
     try:
-        url = f"{MEMPOOL_BASE_URL}/api/v1/mining/difficulty-adjustment"
+        url = f"{MEMPOOL_BASE_URL}/api/v1/blocks"
         response = httpx.get(url, timeout=3.0)
         response.raise_for_status()
-        data = response.json()
+        blocks = response.json()
 
-        # Tolerant parsing: try common field names
-        difficulty = data.get("currentDifficulty") or data.get("difficulty")
+        if not isinstance(blocks, list) or len(blocks) == 0:
+            notes.append("No blocks available from mempool")
+            return None, notes
+
+        # Get difficulty from most recent block
+        difficulty = blocks[0].get("difficulty")
 
         if difficulty is None:
-            notes.append("Difficulty field not found in mempool response")
+            notes.append("Difficulty field not found in recent block")
             return None, notes
 
         return float(difficulty), notes
@@ -187,8 +193,13 @@ def _fetch_recent_block_fees_btc() -> tuple[Optional[float], Optional[int], list
         fee_values = []
 
         for block in blocks[:window]:
-            # Tolerant parsing: try common field names
-            fee = block.get("fee") or block.get("fees") or block.get("totalFees")
+            # Tolerant parsing: check extras.totalFees first (most reliable), then fallbacks
+            fee = None
+            if "extras" in block and "totalFees" in block["extras"]:
+                fee = block["extras"]["totalFees"]
+            else:
+                # Fallback to other possible field names
+                fee = block.get("fee") or block.get("fees") or block.get("totalFees")
 
             if fee is not None:
                 fee_float = float(fee)

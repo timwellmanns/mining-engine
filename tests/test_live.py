@@ -278,3 +278,44 @@ def test_live_endpoint_missing_eur_price():
         # Should have notes about missing EUR and subsidy computation
         assert any("EUR price not available" in note for note in data["notes"])
         assert any("Block subsidy computed" in note for note in data["notes"])
+
+
+def test_live_endpoint_far_future_block_height():
+    """Test /v1/live with far-future block height (>= 34 halvings)."""
+    with patch("httpx.get") as mock_get:
+
+        def mock_response(url, **kwargs):
+            response = Mock()
+            response.raise_for_status = Mock()
+
+            if "/api/v1/prices" in url:
+                response.json = Mock(return_value={"USD": 95000.50, "EUR": 88000.25})
+            elif "/api/v1/fees/recommended" in url:
+                response.json = Mock(
+                    return_value={
+                        "fastestFee": 20,
+                        "halfHourFee": 15,
+                        "hourFee": 10,
+                        "economyFee": 5,
+                        "minimumFee": 1,
+                    }
+                )
+            elif "/api/blocks/tip/height" in url:
+                # Far future: 40 halvings = 210_000 * 40 = 8,400,000
+                response.text = "8400000"
+
+            return response
+
+        mock_get.side_effect = mock_response
+
+        response = client.get("/v1/live")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["block_height"] == 8400000
+        # After >= 34 halvings, subsidy should be exactly 0.0
+        assert data["block_subsidy_btc"] == 0.0
+
+        # Should still have subsidy computation note
+        assert any("Block subsidy computed" in note for note in data["notes"])

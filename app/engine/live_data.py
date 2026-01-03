@@ -48,10 +48,15 @@ def _calculate_block_subsidy(block_height: Optional[int]) -> Optional[float]:
     # Calculate number of halvings that have occurred
     halvings = block_height // halving_interval
 
+    # Cap: after ~34 halvings, subsidy is effectively 0 (satoshi precision limit)
+    if halvings >= 34:
+        return 0.0
+
     # Subsidy after n halvings: 50 / (2^n)
     subsidy = initial_subsidy / (2**halvings)
 
-    return subsidy
+    # Round to 8 decimals to avoid float artifacts (BTC precision)
+    return round(subsidy, 8)
 
 
 def _fetch_mempool_prices() -> tuple[Optional[float], Optional[float], list[str]]:
@@ -64,7 +69,7 @@ def _fetch_mempool_prices() -> tuple[Optional[float], Optional[float], list[str]
     notes = []
     try:
         url = f"{MEMPOOL_BASE_URL}/api/v1/prices"
-        response = httpx.get(url, timeout=5.0)
+        response = httpx.get(url, timeout=3.0)
         response.raise_for_status()
         data = response.json()
 
@@ -92,7 +97,7 @@ def _fetch_mempool_fees() -> tuple[RecommendedFees, list[str]]:
     notes = []
     try:
         url = f"{MEMPOOL_BASE_URL}/api/v1/fees/recommended"
-        response = httpx.get(url, timeout=5.0)
+        response = httpx.get(url, timeout=3.0)
         response.raise_for_status()
         data = response.json()
 
@@ -120,7 +125,7 @@ def _fetch_mempool_tip_height() -> tuple[Optional[int], list[str]]:
     notes = []
     try:
         url = f"{MEMPOOL_BASE_URL}/api/blocks/tip/height"
-        response = httpx.get(url, timeout=5.0)
+        response = httpx.get(url, timeout=3.0)
         response.raise_for_status()
 
         # This endpoint returns plain text integer
